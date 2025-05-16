@@ -2,10 +2,19 @@
 
 Proof-of-concept tool to safely store AWS SSO credentials in your keychain.
 
-> [!CAUTION]
-> I'm not a security expert. You probably shouldn't use this tool.
+## Why
+
+I've used [aws-vault](https://github.com/99designs/aws-vault) forever, and I like that it keeps the credentials away from the file system. This tool aims to solve two problems I have with aws-vault:
+
+1. aws-vault hasn't been updated to use the newer PKCE auth method for SSO, and since the project seems to have been abandoned, I expect it probably won't be
+2. aws-vault really just moves the problem: anything can execute it to extract credentials, and the only confirmation you can have is setting your keychain timeout quite low and having to type in your password again. I solve this by showing a Touch ID confirmation each time that credentials are requested, which includes details of the calling process and what credentials have been requested.
+
+![screenshot of Touch ID prompt](./docs/touch-id.png)
 
 ## Install
+
+> [!CAUTION]
+> I'm not a security expert. You probably shouldn't install this tool.
 
 > [!NOTE]
 > This tool only works on MacOS.
