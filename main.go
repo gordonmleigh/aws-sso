@@ -74,12 +74,19 @@ func (c *SsoCommand) Run() error {
 			return err
 		}
 
+		profileDisplayName := fmt.Sprintf("%s/%s", c.AccountId, c.RoleName)
+
 		env := Environment(os.Environ())
 
 		env.Set("AWS_ACCESS_KEY_ID", creds.AccessKeyId)
 		env.Set("AWS_SECRET_ACCESS_KEY", creds.SecretAccessKey)
 		env.Set("AWS_SESSION_TOKEN", creds.SessionToken)
 		env.Set("AWS_CREDENTIAL_EXPIRATION", expiration)
+		env.Set("AWS_SSO_PROFILE", profileDisplayName)
+
+		if env.Get("AWS_REGION") == "" {
+			env.Set("AWS_REGION", ssoCfg.Region)
+		}
 
 		args := []string{c.Command}
 		args = append(args, c.Arguments...)
