@@ -9,6 +9,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"propulsionworks.io/aws-sso/keychain"
 	"propulsionworks.io/aws-sso/sso"
 	"propulsionworks.io/aws-sso/store"
@@ -89,7 +90,7 @@ func (auth *Authorizer) GetRoleCredentials(
 	accountId string,
 	roleName string,
 	ttlMinutes int,
-) (*sso.RoleCredentials, error) {
+) (*aws.Credentials, error) {
 	auth.init()
 
 	// can skip lookup by passing ttlMinutes = -1
@@ -99,10 +100,9 @@ func (auth *Authorizer) GetRoleCredentials(
 			log.Printf("[WARN] %v", err)
 		}
 
-		threshold := time.Now().Add(time.Duration(ttlMinutes) * time.Minute).Unix()
-		if creds != nil && creds.Expiration >= threshold {
-			expires := time.Unix(creds.Expiration, 0).String()
-			log.Printf("[DEBUG] Credentials are stale (expires %s)\n", expires)
+		threshold := time.Now().Add(time.Duration(ttlMinutes) * time.Minute)
+		if creds != nil && creds.Expires.After(threshold) {
+			log.Printf("[DEBUG] Credentials are stale (expires %s)\n", creds.Expires)
 			return creds, nil
 		}
 	}

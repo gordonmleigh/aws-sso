@@ -73,6 +73,16 @@ func (c *AwsConfig) Open() error {
 	return nil
 }
 
+func (c *AwsConfig) GetProfiles() []string {
+	var profiles []string
+	for _, section := range c.config {
+		if section.Type == "profile" {
+			profiles = append(profiles, section.Name)
+		}
+	}
+	return profiles
+}
+
 func (c *AwsConfig) GetProfileSetting(profileName string, key string) string {
 	return c.get("profile", profileName, key)
 }
@@ -95,6 +105,16 @@ func (c *AwsConfig) GetSsoConfigForProfile(profileName string) *SsoConfig {
 		cfg.Name = cfg.StartUrl
 	}
 	return cfg
+}
+
+func (c *AwsConfig) GetSsoProfiles() []string {
+	var profiles []string
+	for _, section := range c.config {
+		if section.Type == "sso-session" {
+			profiles = append(profiles, section.Name)
+		}
+	}
+	return profiles
 }
 
 func (c *AwsConfig) get(sectionType string, section string, key string) string {

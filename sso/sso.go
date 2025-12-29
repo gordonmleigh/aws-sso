@@ -56,13 +56,6 @@ type ClientCredentials struct {
 	ExpiresAt    int64
 }
 
-type RoleCredentials struct {
-	AccessKeyId     string
-	Expiration      int64
-	SecretAccessKey string
-	SessionToken    string
-}
-
 type SsoTokens struct {
 	AccessToken  string
 	ClientId     string
@@ -295,7 +288,7 @@ func (client *Sso) GetRoleCredentials(
 	ctx context.Context,
 	accountId string,
 	roleName string,
-) (*RoleCredentials, error) {
+) (*aws.Credentials, error) {
 	if client.tokens.AccessToken == "" {
 		return nil, fmt.Errorf("not authorized")
 	}
@@ -315,11 +308,14 @@ func (client *Sso) GetRoleCredentials(
 		return nil, fmt.Errorf("get role credentials: %w", err)
 	}
 
-	creds := &RoleCredentials{
-		AccessKeyId:     *response.RoleCredentials.AccessKeyId,
-		Expiration:      response.RoleCredentials.Expiration / 1000,
+	creds := &aws.Credentials{
+		AccessKeyID:     *response.RoleCredentials.AccessKeyId,
+		AccountID:       accountId,
+		CanExpire:       true,
+		Expires:         time.UnixMilli(response.RoleCredentials.Expiration),
 		SecretAccessKey: *response.RoleCredentials.SecretAccessKey,
 		SessionToken:    *response.RoleCredentials.SessionToken,
+		Source:          "SSO",
 	}
 	return creds, nil
 }

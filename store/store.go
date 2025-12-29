@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"propulsionworks.io/aws-sso/keychain"
 	"propulsionworks.io/aws-sso/sso"
 )
@@ -30,8 +31,8 @@ func (store *AuthStore) GetClientCredentials(name string) (*sso.ClientCredential
 	return result, nil
 }
 
-func (store *AuthStore) GetRoleCredentials(accountId string, roleName string) (*sso.RoleCredentials, error) {
-	result := &sso.RoleCredentials{}
+func (store *AuthStore) GetRoleCredentials(accountId string, roleName string) (*aws.Credentials, error) {
+	result := &aws.Credentials{}
 
 	err := store.getJsonValue(
 		roleCredentials,
@@ -62,7 +63,7 @@ func (store *AuthStore) SetClientCredentials(name string, credentials *sso.Clien
 	return store.setJsonValue(clientCredentials, name, credentials)
 }
 
-func (store *AuthStore) SetRoleCredentials(accountId string, roleName string, credentials *sso.RoleCredentials) error {
+func (store *AuthStore) SetRoleCredentials(accountId string, roleName string, credentials *aws.Credentials) error {
 	return store.setJsonValue(roleCredentials, accountId+":"+roleName, credentials)
 }
 
