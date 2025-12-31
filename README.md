@@ -55,6 +55,16 @@ $ aws-sso -account Production -role AdministratorAccess
 
 You can specify the account as the ID (e.g. 100000000001), or the [Account Name](https://docs.aws.amazon.com/accounts/latest/reference/manage-acct-update-acct-name.html).
 
+### Custom command
+
+By default, aws-sso will run the shell given in the users `SHELL` environment variable. To run something different, add it after all of the options.
+
+The `--` is optional.
+
+```shell
+$ aws-sso -account Production -- terraform plan
+```
+
 ### Non-interactive mode
 
 If you pass `-no-input` or `-output=json`, then no prompts will be shown. If the required values have not been provided as command line options, then you will see an error message and a non-zero exit code.
