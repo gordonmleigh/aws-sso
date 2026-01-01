@@ -65,11 +65,27 @@ func (m *app) assumeRoleCredentials() error {
 		})
 	}
 
+	if m.roleSessionName == "" {
+		// we'll try to get the current role session name to propagate it
+		identity, err := m.sts.GetCallerIdentity(m.ctx, &sts.GetCallerIdentityInput{})
+		if err == nil && identity.UserId != nil {
+			log.Printf("[DEBUG] got caller identity: %s", *identity.UserId)
+
+			parts := strings.Split(*identity.UserId, ":")
+			if len(parts) > 1 {
+				log.Printf("[DEBUG] extracted role session name: %s", parts[1])
+				m.roleSessionName = parts[1]
+			}
+		} else {
+			if err != nil {
+				log.Printf("[DEBUG] failed to get caller identity: %v", err)
+			}
+			m.roleSessionName = "aws-sso"
+		}
+	}
+
 	input := &sts.AssumeRoleInput{
 		RoleArn: aws.String(m.assumeRole),
-	}
-	if m.roleSessionName == "" {
-		m.roleSessionName = "aws-sso"
 	}
 	input.RoleSessionName = &m.roleSessionName
 
