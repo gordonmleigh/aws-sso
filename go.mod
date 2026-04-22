@@ -1,4 +1,4 @@
-module propulsionworks.io/aws-sso
+module github.com/gordonmleigh/aws-sso
 
 go 1.24.3
 

@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"propulsionworks.io/aws-sso/keychain"
-	"propulsionworks.io/aws-sso/sso"
-	"propulsionworks.io/aws-sso/store"
+	"github.com/gordonmleigh/aws-sso/keychain"
+	"github.com/gordonmleigh/aws-sso/sso"
+	"github.com/gordonmleigh/aws-sso/store"
 )
 
 const (

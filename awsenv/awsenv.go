@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"propulsionworks.io/aws-sso/env"
+	"github.com/gordonmleigh/aws-sso/env"
 )
 
 type AwsEnv struct {
