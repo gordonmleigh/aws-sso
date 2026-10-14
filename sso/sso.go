@@ -6,8 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"net"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -25,7 +26,20 @@ var (
 
 var (
 	ErrRefreshTokenInvalid = fmt.Errorf("refresh token is invalid")
+	// ErrClientInvalid means the OIDC client registration was rejected, so a
+	// new one is needed.
+	ErrClientInvalid = errors.New("OIDC client is invalid")
 )
+
+// clientError wraps err with ErrClientInvalid if AWS rejected the client.
+func clientError(err error) error {
+	var invalidClient *ssoidcTypes.InvalidClientException
+	var unauthorizedClient *ssoidcTypes.UnauthorizedClientException
+	if errors.As(err, &invalidClient) || errors.As(err, &unauthorizedClient) {
+		return fmt.Errorf("%w: %w", ErrClientInvalid, err)
+	}
+	return err
+}
 
 type Sso struct {
 	Region   string
@@ -40,9 +54,8 @@ type Sso struct {
 }
 
 type AccountInfo struct {
-	AccountId    string
-	AccountName  string
-	EmailAddress string
+	AccountId   string
+	AccountName string
 }
 
 type RoleInfo struct {
@@ -61,10 +74,6 @@ type SsoTokens struct {
 	ClientId     string
 	RefreshToken string
 	ExpiresAt    int64
-}
-
-func (client *Sso) ClientId() string {
-	return client.oauth.ClientID
 }
 
 func (client *Sso) ConfigureClient(credentials *ClientCredentials) {
@@ -122,22 +131,35 @@ func (client *Sso) BeginAuthorize(ctx context.Context) string {
 	return authUrl
 }
 
-func (client *Sso) ListenForResponse(ctx context.Context) (*SsoTokens, error) {
-	var result *ssooidc.CreateTokenOutput
-	var tokenError error
-	var server *http.Server
-
+// ListenForResponse waits for the browser to be redirected back after a login,
+// and exchanges the code for tokens. ready is called once the callback
+// listener is up, to open the browser, so that the redirect can't arrive
+// before anything is listening for it.
+func (client *Sso) ListenForResponse(ctx context.Context, ready func() error) (*SsoTokens, error) {
 	if client.oidcClient == nil {
 		client.oidcClient = ssooidc.New(ssooidc.Options{Region: client.Region})
 	}
 
-	server = &http.Server{
-		Addr: fmt.Sprintf("127.0.0.1:%d", defaultCallbackPort),
+	var lc net.ListenConfig
+	listener, err := lc.Listen(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", defaultCallbackPort))
+	if err != nil {
+		return nil, fmt.Errorf("failed to listen for the login callback: %w", err)
+	}
+
+	type outcome struct {
+		result *ssooidc.CreateTokenOutput
+		err    error
+	}
+	// only the first valid callback is used; the buffer means the handler
+	// never waits for it to be read
+	done := make(chan outcome, 1)
+	var handled atomic.Bool
+
+	server := &http.Server{
 		Handler: http.HandlerFunc(
 			func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path != "/" {
-					w.WriteHeader(404)
-					io.WriteString(w, "not found")
+					http.Error(w, "not found", http.StatusNotFound)
 					return
 				}
 				query := r.URL.Query()
@@ -145,17 +167,41 @@ func (client *Sso) ListenForResponse(ctx context.Context) (*SsoTokens, error) {
 				code := query.Get("code")
 
 				if subtle.ConstantTimeCompare([]byte(client.state), []byte(state)) == 0 {
-					w.WriteHeader(400)
-					io.WriteString(w, "invalid state")
+					http.Error(w, "invalid state", http.StatusBadRequest)
+					return
+				}
+				// the login was refused or failed (e.g. the user denied the
+				// consent page), so stop waiting for it
+				if errCode := query.Get("error"); errCode != "" {
+					if !handled.CompareAndSwap(false, true) {
+						http.Error(w, "already logged in", http.StatusBadRequest)
+						return
+					}
+					err := fmt.Errorf("login failed in the browser: %s", errCode)
+					if description := query.Get("error_description"); description != "" {
+						err = fmt.Errorf("%w (%s)", err, description)
+					}
+					if errCode == "unauthorized_client" || errCode == "invalid_client" {
+						err = fmt.Errorf("%w: %w", ErrClientInvalid, err)
+					}
+					http.Error(
+						w,
+						"Login failed, you can close your browser now.",
+						http.StatusBadRequest,
+					)
+					done <- outcome{nil, err}
 					return
 				}
 				if code == "" {
-					w.WriteHeader(400)
-					io.WriteString(w, "bad request")
+					http.Error(w, "bad request", http.StatusBadRequest)
+					return
+				}
+				if !handled.CompareAndSwap(false, true) {
+					http.Error(w, "already logged in", http.StatusBadRequest)
 					return
 				}
 
-				result, tokenError = client.oidcClient.CreateToken(
+				result, err := client.oidcClient.CreateToken(
 					r.Context(),
 					&ssooidc.CreateTokenInput{
 						ClientId:     &client.oauth.ClientID,
@@ -166,33 +212,39 @@ func (client *Sso) ListenForResponse(ctx context.Context) (*SsoTokens, error) {
 						RedirectUri:  &client.oauth.RedirectURL,
 					},
 				)
-				if tokenError != nil {
-					log.Print(tokenError)
-					w.WriteHeader(400)
-					io.WriteString(w, "Bad request, please start again.")
+				if err != nil {
+					http.Error(w, "Bad request, please start again.", http.StatusBadRequest)
 				} else {
-					w.WriteHeader(200)
-					io.WriteString(w, "Success! You can close your browser now...")
+					_, _ = io.WriteString(w, "Success! You can close your browser now...")
 				}
-
-				go server.Shutdown(context.Background())
+				done <- outcome{result, err}
 			},
 		),
 	}
 
-	go func() {
-		<-ctx.Done()
-		server.Shutdown(context.Background())
+	served := make(chan error, 1)
+	go func() { served <- server.Serve(listener) }()
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = server.Shutdown(shutdownCtx)
 	}()
 
-	if err := server.ListenAndServe(); err != http.ErrServerClosed {
+	if err := ready(); err != nil {
 		return nil, err
 	}
-	if tokenError != nil {
-		return nil, tokenError
-	}
-	if result == nil {
-		return nil, fmt.Errorf("waiting for the callback timed out or was cancelled")
+
+	var result *ssooidc.CreateTokenOutput
+	select {
+	case o := <-done:
+		if o.err != nil {
+			return nil, clientError(o.err)
+		}
+		result = o.result
+	case err := <-served:
+		return nil, fmt.Errorf("login callback server failed: %w", err)
+	case <-ctx.Done():
+		return nil, fmt.Errorf("waiting for the callback timed out or was cancelled: %w", ctx.Err())
 	}
 
 	client.tokens = SsoTokens{
@@ -234,9 +286,8 @@ func (client *Sso) GetAccounts(ctx context.Context) ([]AccountInfo, error) {
 
 		for _, account := range response.AccountList {
 			accounts = append(accounts, AccountInfo{
-				AccountId:    *account.AccountId,
-				AccountName:  *account.AccountName,
-				EmailAddress: *account.EmailAddress,
+				AccountId:   *account.AccountId,
+				AccountName: *account.AccountName,
 			})
 		}
 	}
@@ -336,7 +387,7 @@ func (client *Sso) RefreshTokens(ctx context.Context) (*SsoTokens, error) {
 		if errors.As(err, &grantErr) {
 			return nil, ErrRefreshTokenInvalid
 		}
-		return nil, fmt.Errorf("refresh tokens: %w", err)
+		return nil, fmt.Errorf("refresh tokens: %w", clientError(err))
 	}
 
 	client.tokens.AccessToken = *result.AccessToken
@@ -348,8 +399,4 @@ func (client *Sso) RefreshTokens(ctx context.Context) (*SsoTokens, error) {
 	}
 
 	return &client.tokens, nil
-}
-
-func (client *Sso) SetTokens(tokens *SsoTokens) {
-	client.tokens = *tokens
 }

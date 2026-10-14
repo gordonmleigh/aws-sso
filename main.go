@@ -1,45 +1,38 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/gordonmleigh/aws-sso/cmd"
 	"github.com/hashicorp/logutils"
 )
 
+// errors go to stderr, so the style is for whatever stderr is
+var errorStyle = lipgloss.NewRenderer(os.Stderr).NewStyle().Foreground(lipgloss.Color("9"))
+
 func main() {
 	log.SetFlags(0)
-	appState := &app{}
 
-	flag.StringVar(&appState.account, "account", "", "The AWS account ID or name to select")
-	flag.StringVar(&appState.assumeRole, "assume-role", "", "ARN of a role to assume after authenticating")
-	flag.BoolVar(&appState.debug, "debug", false, "Enable debug logging")
-	flag.BoolVar(&appState.noInput, "no-input", false, "True to avoid asking the user anything")
-	flag.StringVar(&appState.region, "region", "", "The AWS region to use")
-	flag.StringVar(&appState.roleSessionName, "role-session-name", "", "Value to use for the role session name for the assume role operation")
-	flag.StringVar(&appState.ssoRole, "role", "", "The name of the SSO role to assume")
-	flag.StringVar(&appState.ssoRegion, "sso-region", "", "The AWS region for SSO")
-	flag.StringVar(&appState.ssoSession, "sso-session", "", "The name of the SSO session to use")
-
-	flag.Func("output", "Output format ('json' or 'env' or 'export')", func(s string) error {
-		if s != "json" && s != "env" && s != "export" {
-			return errors.New("invalid output format, must be 'json', 'env' or 'export'")
-		}
-		appState.outputFormat = s
-		if s == "json" {
-			appState.noInput = true
-		}
-		return nil
-	})
-
-	flag.Parse()
-	appState.args = flag.Args()
+	c, err := cmd.Parse(os.Args[0], os.Args[1:])
+	if errors.Is(err, flag.ErrHelp) {
+		// the usage has been printed
+		os.Exit(0)
+	}
+	if err != nil {
+		// the error and usage have been printed
+		os.Exit(2)
+	}
 
 	var level logutils.LogLevel
-	if appState.debug {
+	if c.Debug() {
 		level = logutils.LogLevel("DEBUG")
 	} else {
 		level = logutils.LogLevel("WARN")
@@ -51,8 +44,12 @@ func main() {
 		Writer:   os.Stderr,
 	})
 
-	if err := appState.run(); err != nil {
-		fmt.Printf("%v %v\n", errorStyle.Render("ERROR:"), err)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	err = c.Run(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v %v\n", errorStyle.Render("ERROR:"), err)
 		os.Exit(1)
 	}
 }

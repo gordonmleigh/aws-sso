@@ -238,3 +238,36 @@ func getSectionName(line string) (ok bool, sectionType string, name string) {
 
 	return true, strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
 }
+
+// SsoSettings identify an SSO session, and the AWS region to use with it.
+type SsoSettings struct {
+	// Session is the name of the [sso-session] section.
+	Session  string
+	Region   string
+	StartUrl string
+}
+
+// ResolveSso fills in any settings that weren't given from the config file,
+// picking the only SSO session if there's just one.
+func (c *AwsConfig) ResolveSso(s SsoSettings) SsoSettings {
+	if s.Session == "" {
+		if sessions := c.GetSsoProfiles(); len(sessions) == 1 {
+			s.Session = sessions[0]
+		}
+	}
+	if s.Session != "" {
+		ssoCfg := c.GetSsoConfig(s.Session)
+		if s.Region == "" {
+			s.Region = ssoCfg.Region
+		}
+		if s.StartUrl == "" {
+			s.StartUrl = ssoCfg.StartUrl
+		}
+	}
+	return s
+}
+
+// Complete reports whether there's enough to talk to the SSO session.
+func (s SsoSettings) Complete() bool {
+	return s.Region != "" && s.StartUrl != ""
+}

@@ -1,0 +1,33 @@
+[tasks.build]
+description = "Build the aws-sso binary"
+depends = ["gocheck"]
+sources = ["**/*.go", "**/*.m", "**/*.h", "go.mod", "go.sum"]
+outputs = ["out/aws-sso"]
+run = "go build -o out/aws-sso ."
+
+[tasks.install]
+description = "Install aws-sso and register the agent with launchd"
+depends = ["build"]
+sources = ["out/aws-sso"]
+run = '''
+bin="$HOME/go/bin"
+mkdir -p "$bin"
+echo "Installing to $bin"
+# install replaces the file rather than overwriting it, so a running agent
+# isn't killed for having its code changed underneath it
+install -m 0755 out/aws-sso "$bin/aws-sso"
+"$bin/aws-sso" agent install
+'''
+
+[tasks.gocheck]
+description = "Lint and format the go code"
+sources = ["**/*.go", "**/*.m", "**/*.h", "go.mod", "go.sum", ".golangci.yaml"]
+outputs = { auto = true }
+run = [
+  "golangci-lint fmt",
+  "golangci-lint run",
+]
+
+[tools]
+go = "latest"
+golangci-lint = "latest"

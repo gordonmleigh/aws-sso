@@ -1,0 +1,48 @@
+version: "2"
+linters:
+  # Default set of linters.
+  # The value can be:
+  # - `standard`: the "Default" linters https://golangci-lint.run/docs/linters/#all-linters
+  # - `all`: enables all linters by default.
+  # - `none`: disables all linters by default.
+  # - `fast`: enables only linters considered as "fast" (`golangci-lint help linters --json | jq '[ .[] | select(.fast==true) ] | map(.name)'`).
+  # Default: standard
+  default: standard
+
+  disable: []
+
+  settings:
+    errcheck:
+      exclude-functions:
+        - io.WriteString(net/http.ResponseWriter)
+
+    govet:
+      enable:
+        - atomicalign
+        - deepequalerrors
+        - nilness
+        - reflectvaluecompare
+        - sortslice
+        - unusedwrite
+        # these are noisy:
+        #- fieldalignment
+        #- shadow
+
+  exclusions:
+    presets:
+      - std-error-handling
+
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+
+issues:
+  # show every issue, rather than only the first 3 with the same text
+  max-same-issues: 0
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+    - golines

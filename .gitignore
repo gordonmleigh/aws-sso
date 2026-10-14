@@ -1,2 +1,2 @@
-# the binary
-aws-sso
+out/
+.mcp.json
